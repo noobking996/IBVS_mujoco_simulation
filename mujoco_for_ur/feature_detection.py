@@ -6,90 +6,106 @@ import cv2 as cv
 import numpy as np
 
 # ---- 检测参数 ---------------------------------------------------------
-# 红色在 HSV 色相环上跨 0°/180° 两端，因此需要两段区间取并集
+#--颜色分割--#
 _HUE_RED_LOW = (0, 12)          # 低色相段的 H 范围
 _HUE_RED_HIGH = (160, 180)      # 高色相段的 H 范围
 _SAT_MIN = 50                   # 饱和度下限，滤掉灰白背景
 _VAL_MIN = 40                   # 亮度下限，滤掉近黑像素
-_MIN_CONTOUR_AREA = 30.0        # px^2，小于该面积视为噪点
-_EDGE_MARGIN = 5                # px，距图像边界不足该值视为贴边或被裁切
-_MORPH_KERNEL = 3               # 形态学核尺寸
-_APPROX_EPS_START = 0.02        # 多边形逼近的初始精度（占周长比例）
-_APPROX_EPS_STEP = 0.005        # 精度逐步放宽的步长
-_APPROX_EPS_MAX = 0.20          # 精度放宽上限
+_MORPH_KERNEL_SIZE = 3          # (去噪 + 补洞)形态学核尺寸
+#--轮廓筛选--#
+_MIN_CONTOUR_AREA = 30.0        # 单位: px^2，小于该面积视为噪点
+_EDGE_MARGIN = 5                # 单位: px，距图像边界不足该值视为贴边或被裁切
+#--透视四边形--#
+_APPROX_EPS_START = 0.02        # (多边形逼近)初始允许误差(占周长比例)
+_APPROX_EPS_STEP = 0.005        # 允许误差自增步长
+_APPROX_EPS_MAX = 0.20          # 允许误差上限
 _SUBPIX_MAX_SHIFT = 1.0         # px，亚像素精化允许的最大偏移，超出即回退
+_SUBPIX_MIN_AREA_RATIO = 0.85   # 精化后面积至少保留原面积的比例，低于即回退
+_SUBPIX_WIN_SIZE = (5, 5)        # 亚像素精化搜索窗口边长
+_SUBPIX_ZERO_ZONE = (-1, -1)     # 零点区域, 默认(-1, -1): 由 cornerSubPix 自行计算
 
 
-def _segment_red(image):
-    """RGB -> HSV 双区间红色分割，形态学开闭运算去噪补洞，返回 uint8 掩膜。"""
+def _segment_red(image: np.ndarray) -> np.ndarray:
+    """图像二值化, 提取红色区域掩模"""
     hsv = cv.cvtColor(image, cv.COLOR_RGB2HSV)
     lower_a = np.array([_HUE_RED_LOW[0], _SAT_MIN, _VAL_MIN], np.uint8)
     upper_a = np.array([_HUE_RED_LOW[1], 255, 255], np.uint8)
     lower_b = np.array([_HUE_RED_HIGH[0], _SAT_MIN, _VAL_MIN], np.uint8)
     upper_b = np.array([_HUE_RED_HIGH[1], 255, 255], np.uint8)
-    mask = cv.bitwise_or(cv.inRange(hsv, lower_a, upper_a),
-                         cv.inRange(hsv, lower_b, upper_b))
-    kernel = np.ones((_MORPH_KERNEL, _MORPH_KERNEL), np.uint8)
-    mask = cv.morphologyEx(mask, cv.MORPH_OPEN, kernel)
-    mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, kernel)
+    # 红色区域筛选;(色相段取并集)
+    mask = cv.bitwise_or(cv.inRange(hsv, lower_a, upper_a), # 低色相段红色
+                         cv.inRange(hsv, lower_b, upper_b)) # 高色相段红色
+    kernel = np.ones((_MORPH_KERNEL_SIZE, _MORPH_KERNEL_SIZE), np.uint8)
+    # 去噪 + 补洞
+    mask = cv.morphologyEx(mask, cv.MORPH_OPEN, kernel)     # 形态学开运算, 去噪
+    mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, kernel)    # 形态学闭运算, 补洞
     return mask
 
 
-def _select_target(mask):
-    """在掩膜中挑选面积最大的合格轮廓；无合格候选时返回 None。"""
-    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    candidates = [c for c in contours if cv.contourArea(c) >= _MIN_CONTOUR_AREA]
+def _select_target(mask: np.ndarray) -> np.ndarray | None:
+    """从二值图像中提取并返回面积最大的合格轮廓; 无合格轮廓时返回 None。"""
+    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)   # 二值图像中找到(可能)多个轮廓点集
+    candidates = [c for c in contours if cv.contourArea(c) >= _MIN_CONTOUR_AREA]    # 依据面积筛选轮廓, 得到筛选后的点集
     if not candidates:
         return None
-    return max(candidates, key=cv.contourArea)
+    return max(candidates, key=cv.contourArea)  # 返回面积最大的一个轮廓点集
 
 
-def _is_clipped(contour, width, height):
-    """目标外接框是否贴边或被裁切。"""
-    x, y, w, h = cv.boundingRect(contour)
+def _is_clipped(contour: np.ndarray, width: int, height: int) -> bool:
+    """判断轮廓点集是否贴边/裁切。"""
+    x, y, w, h = cv.boundingRect(contour)   # 外接矩形
     return (x < _EDGE_MARGIN or y < _EDGE_MARGIN
             or x + w > width - _EDGE_MARGIN
             or y + h > height - _EDGE_MARGIN)
 
 
-def _extract_quad(contour):
-    """凸包 + 逐步放宽 epsilon 的 approxPolyDP，得到 4 个透视顶点。"""
+def _extract_quad(contour) -> np.ndarray | None:
+    """从轮廓点集中提取 4 个透视顶点"""
+    # 凸包轮廓点集构建
     hull = cv.convexHull(contour)
     perimeter = cv.arcLength(hull, True)
     if perimeter <= 0:
         return None
+    #  四边形顶点逼近
     eps = _APPROX_EPS_START
     while eps <= _APPROX_EPS_MAX:
-        approx = cv.approxPolyDP(hull, eps * perimeter, True)
+        approx:np.ndarray = cv.approxPolyDP(hull, eps * perimeter, True)
         if len(approx) == 4:
             return approx.reshape(4, 2).astype(np.float32)
         eps += _APPROX_EPS_STEP
     return None
 
 
-def _refine_subpix(image, quad):
+def _refine_subpix(image, quad: np.ndarray):
     """cornerSubPix 亚像素精化；发散、非有限或面积异常时回退原四角点。"""
+    # 灰度图 + 迭代终止条件(最大 30 次 / 精度 0.01)
     gray = cv.cvtColor(image, cv.COLOR_RGB2GRAY)
     criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.01)
+    # 精化在副本上进行, 回退时原四角点不受影响
     refined = quad.reshape(-1, 1, 2).copy()
+    # 亚像素精化
     try:
-        cv.cornerSubPix(gray, refined, (5, 5), (-1, -1), criteria)
-    except cv.error:
+        cv.cornerSubPix(gray, refined, _SUBPIX_WIN_SIZE, _SUBPIX_ZERO_ZONE,
+                        criteria)
+    except cv.error:                        # 抛异常, 回退原四角点
         return quad
     refined = refined.reshape(4, 2)
-    if not np.all(np.isfinite(refined)):
+    if not np.all(np.isfinite(refined)):    # 含 NaN / inf, 回退原四角点
         return quad
-    if np.linalg.norm(refined - quad, axis=1).max() > _SUBPIX_MAX_SHIFT:
+    # 发散判断: 任一角点位移超过阈值
+    displacements: np.ndarray = np.linalg.norm(refined - quad, axis=1)  # 精化后四角点位移
+    if displacements.max() > _SUBPIX_MAX_SHIFT:
         return quad
+    # 面积异常判断: 若精化后面积不足原面积的给定比例, 回退
     area_before = cv.contourArea(quad.reshape(-1, 1, 2))
     area_after = cv.contourArea(refined.reshape(-1, 1, 2))
-    if area_before > 0 and area_after < 0.85 * area_before:
+    if area_before > 0 and area_after < _SUBPIX_MIN_AREA_RATIO * area_before:
         return quad
-    return refined
+    return refined                          # 以上判据均未触发, 采用精化结果
 
 
-def _order_clockwise(points):
-    """按质心极角顺时针排序，并以 x+y 最小者（左上）作为 1 号角点。"""
+def _order_clockwise(points: np.ndarray):
+    """按质心极角顺时针排序, 以左上方角点作 1 号"""
     center = points.mean(axis=0)
     angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])
     ordered = points[np.argsort(angles)]
