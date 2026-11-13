@@ -23,6 +23,8 @@ _SUBPIX_MAX_SHIFT = 1.0         # px，亚像素精化允许的最大偏移，�
 _SUBPIX_MIN_AREA_RATIO = 0.85   # 精化后面积至少保留原面积的比例，低于即回退
 _SUBPIX_WIN_SIZE = (5, 5)        # 亚像素精化搜索窗口边长
 _SUBPIX_ZERO_ZONE = (-1, -1)     # 零点区域, 默认(-1, -1): 由 cornerSubPix 自行计算
+#--跨帧对应--#
+_RAISE_ERROR = True             # 上帧角点格式有误时, 是否抛出错误
 
 
 def _segment_red(image: np.ndarray) -> np.ndarray:
@@ -104,8 +106,8 @@ def _refine_subpix(image: np.ndarray, quad: np.ndarray):
     return refined                          # 以上判据均未触发, 采用精化结果
 
 
-def _order_clockwise(points: np.ndarray):
-    """按质心极角顺时针排序, 以左上方角点作 1 号"""
+def _order_clockwise(points: np.ndarray) -> np.ndarray:
+    """角点重排序(绝对位置): 按质心极角顺时针排序, 以左上方角点作 1 号"""
     center = points.mean(axis=0)    # 几何中心, 作为极坐标原点
     pole_angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])    # 各点极角
     ordered_pts = points[np.argsort(pole_angles)]   # 顺时针排序后的数组, 形状:(N, 2)
@@ -113,14 +115,18 @@ def _order_clockwise(points: np.ndarray):
     return np.roll(ordered_pts, -No1_index, axis=0) # 返回重排序(N, 2)形状点集, 以1号点为首个元素
 
 
-def _match_previous(points: np.ndarray, previous):
-    """在 4! 全排列中取与上一帧距离平方和最小的编号，保持物理角点身份。"""
+def _order_relative(points: np.ndarray, previous) -> np.ndarray | None:
+    """角点重排序(相对位置): 依据与上帧角点相对位置排序, 保持物理角点编号不随图像方位跳变"""
+    if previous is None:    #首次, 直接跳过
+        return None
     prev = np.asarray(previous, dtype=np.float64)
     if prev.shape != (4, 2) or not np.all(np.isfinite(prev)):
+        if _RAISE_ERROR:
+            raise ValueError("FATAL: Invalid format of previous_points detected !!!")
         return None
     best_perm, best_cost = None, np.inf
-    for perm in permutations(range(4)):
-        cost = float(np.sum((points[list(perm)] - prev) ** 2))
+    for perm in permutations(range(4)): # 遍历四角点顺序排列
+        cost = float(np.sum((points[list(perm)] - prev) ** 2))  # 计算当前排列与上帧角点距离平方和
         if cost < best_cost:
             best_cost, best_perm = cost, perm
     return points[list(best_perm)]
@@ -169,8 +175,8 @@ def detect_feature_points(image, previous_points=None):
     points = quad.astype(np.float64)
 
     # 4. 角点编号：首帧按左上/右上/右下/左下顺时针，后续帧按上一帧最近匹配
-    matched = None
+    matched_pts = None
     if previous_points is not None:
-        matched = _match_previous(points, previous_points)
-    points = _order_clockwise(points) if matched is None else matched
+        matched_pts = _order_relative(points, previous_points)
+    points = _order_clockwise(points) if matched_pts is None else matched_pts
     return points, True
