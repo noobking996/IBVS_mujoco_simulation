@@ -76,12 +76,12 @@ def _extract_quad(contour) -> np.ndarray | None:
     return None
 
 
-def _refine_subpix(image, quad: np.ndarray):
-    """cornerSubPix 亚像素精化；发散、非有限或面积异常时回退原四角点。"""
+def _refine_subpix(image: np.ndarray, quad: np.ndarray):
+    """四角点坐标的有条件亚像素精化, 返回精化后的点集或原点集"""
     # 灰度图 + 迭代终止条件(最大 30 次 / 精度 0.01)
     gray = cv.cvtColor(image, cv.COLOR_RGB2GRAY)
     criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.01)
-    # 精化在副本上进行, 回退时原四角点不受影响
+    # 创建副本, 用于精化
     refined = quad.reshape(-1, 1, 2).copy()
     # 亚像素精化
     try:
@@ -106,14 +106,14 @@ def _refine_subpix(image, quad: np.ndarray):
 
 def _order_clockwise(points: np.ndarray):
     """按质心极角顺时针排序, 以左上方角点作 1 号"""
-    center = points.mean(axis=0)
-    angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])
-    ordered = points[np.argsort(angles)]
-    start = int(np.argmin(ordered.sum(axis=1)))
-    return np.roll(ordered, -start, axis=0)
+    center = points.mean(axis=0)    # 几何中心, 作为极坐标原点
+    pole_angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])    # 各点极角
+    ordered_pts = points[np.argsort(pole_angles)]   # 顺时针排序后的数组, 形状:(N, 2)
+    No1_index = int(np.argmin(ordered_pts.sum(axis=1))) # 1号点在ordered_pts中的索引
+    return np.roll(ordered_pts, -No1_index, axis=0) # 返回重排序(N, 2)形状点集, 以1号点为首个元素
 
 
-def _match_previous(points, previous):
+def _match_previous(points: np.ndarray, previous):
     """在 4! 全排列中取与上一帧距离平方和最小的编号，保持物理角点身份。"""
     prev = np.asarray(previous, dtype=np.float64)
     if prev.shape != (4, 2) or not np.all(np.isfinite(prev)):
