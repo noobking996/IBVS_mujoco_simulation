@@ -3,7 +3,7 @@
 import numpy as np
 
 
-def calculate_interaction_matrix(points, depths, intrinsics):
+def calculate_interaction_matrix(points, depths, intrinsics) -> np.ndarray:
     """计算归一化图像坐标的交互矩阵 L，形状 (8, 6)。
 
     points: (4, 2)，四点像素坐标，每行 (u, v)。
@@ -57,7 +57,7 @@ def calculate_interaction_matrix(points, depths, intrinsics):
 
 
 def compute_joint_velocity(points, desired_points, depths, intrinsics,
-                           robot_jacobian, lambda_gain=2.0, damping=1e-4):
+                           robot_jacobian, lambda_gain=2.0, damping=1e-4) -> np.ndarray:
     """计算关节速度 qdot，返回形状 (n,) 的有限浮点 ndarray，单位 rad/s。
 
     points / desired_points: (4, 2)，当前/期望像素坐标，角点身份一致。
