@@ -20,12 +20,12 @@ def calculate_interaction_matrix(points, depths, intrinsics):
     depths = np.asarray(depths, dtype=np.float64).reshape(-1)
     intrinsics = np.asarray(intrinsics, dtype=np.float64).reshape(-1)
     if points.shape != (4, 2):
-        raise ValueError("points 形状必须为 (4, 2), 每行是一个像素坐标 (u, v)")
+        raise ValueError("!! points 形状不为 (4, 2) !!")
     if depths.shape != (4,):
-        raise ValueError("depths 必须为与四角点一一对应的 (4,) 深度数组")
+        raise ValueError("!! depths 形状不为 (4,) !!")
     # 深度为非正或非有限时无法定义 1/Z, 直接拒绝
     if not np.all(np.isfinite(depths)) or np.any(depths <= 0):
-        raise ValueError("Feature depths must be finite and positive")
+        raise ValueError("特征深度必须为有限正数, 单位 m")
     if intrinsics.shape != (4,):
         raise ValueError("intrinsics 必须为 (fx, fy, cx, cy) 四个数")
     fx, fy, cx, cy = intrinsics
@@ -41,11 +41,13 @@ def calculate_interaction_matrix(points, depths, intrinsics):
     interaction = np.zeros((8, 6), dtype=np.float64)
     # x_dot 行
     interaction[0::2, 0] = -1.0 / z             # vx
+    pass                                        # vy
     interaction[0::2, 2] = x / z                # vz
     interaction[0::2, 3] = x * y                # wx
     interaction[0::2, 4] = -(1.0 + x ** 2)      # wy
     interaction[0::2, 5] = y                    # wz
     # y_dot 行
+    pass                                        # vx
     interaction[1::2, 1] = -1.0 / z             # vy
     interaction[1::2, 2] = y / z                # vz
     interaction[1::2, 3] = 1.0 + y ** 2         # wx
