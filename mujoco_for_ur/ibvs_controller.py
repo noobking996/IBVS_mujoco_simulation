@@ -90,16 +90,16 @@ def compute_joint_velocity(points, desired_points, depths, intrinsics,
         raise ValueError("damping 不能为负")
     fx, fy = float(intrinsics[0]), float(intrinsics[1])
 
-    # 归一化图像误差, 方向取 current - desired, 行序与 B1 一致
+    # 归一化图像误差 e = s - s*, 行序与 B1 一致
     error = np.empty(8, dtype=np.float64)
     error[0::2] = (points[:, 0] - desired[:, 0]) / fx
     error[1::2] = (points[:, 1] - desired[:, 1]) / fy
 
-    # 图像变化率 s_dot = L @ J @ q_dot, 取负反馈 q_dot = -lambda * (L J)^+ e
+    # 图像变化率 s_dot = L @ J @ q_dot, 取负反馈 q_dot = -lambda (A^T A + mu^2 I)^-1 A^T e
     interaction = calculate_interaction_matrix(points, depths, intrinsics)
-    image_jacobian = interaction @ jacobian              # (8, n)
-    gram = image_jacobian @ image_jacobian.T             # (8, 8)
-    # Tikhonov 阻尼项 mu^2 (mu 即 damping), 抑制接近奇异时的过大速度
-    gram[np.diag_indices_from(gram)] += damping ** 2
-    velocity = -lambda_gain * (image_jacobian.T @ np.linalg.solve(gram, error))
-    return velocity
+    A = interaction @ jacobian              # 图像雅可比矩阵 (8, 6)
+    # (正则化)格拉姆矩阵 A^T A + mu^2 (mu = damping)
+    n = jacobian.shape[1]                   # 关节数: 6
+    gram = A.T @ A + damping ** 2 * np.eye(n)
+    joint_velocity = -lambda_gain * np.linalg.solve(gram, A.T @ error)
+    return joint_velocity
