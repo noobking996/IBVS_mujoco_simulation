@@ -9,10 +9,11 @@ from ibvs_controller import calculate_interaction_matrix, compute_joint_velocity
 
 class VisualServoController:
     def __init__(self, model, data, camera_name, target_name, resolution,
-                 lambda_gain=2.0, tolerance_px=0.2):
+                 lambda_gain=2.0, tolerance_px=0.2, damping=1e-4):
         self.model, self.data = model, data
         self.resolution = resolution
         self.lambda_gain = lambda_gain
+        self.damping = damping
         self.tolerance_px = tolerance_px
         self.camera_id = model.camera(camera_name).id
         self.target_body_id = model.body(target_name).id
@@ -115,7 +116,7 @@ class VisualServoController:
             points, self.desired_points.copy(), depths,
             (self.fx, self.fy, self.cx, self.cy),
             robot_controller.get_jacobian(current_joint_angles),
-            lambda_gain=self.lambda_gain, damping=1e-4), dtype=np.float64, copy=True)
+            lambda_gain=self.lambda_gain, damping=self.damping), dtype=np.float64, copy=True)
         if velocity.shape != (self.model.nv,):
             raise ValueError(f"任务 B2 必须返回 ({self.model.nv},) 关节速度数组")
         if not np.all(np.isfinite(velocity)):

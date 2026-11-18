@@ -153,6 +153,10 @@ def main(argv=None):
                         default="translation")
     parser.add_argument("--steps", type=int, default=None, help="Control frames; demo default 600")
     parser.add_argument("--output", type=Path, help="Results directory, default <repo>/results/<scenario>")
+    parser.add_argument("--lambda", dest="lambda_gain", type=float, default=2.0,
+                        help="IBVS proportional gain lambda, default 2.0")
+    parser.add_argument("--damping", type=float, default=1e-4,
+                        help="Tikhonov damping mu, default 1e-4")
     parser.add_argument("--record", action="store_true", help="Save annotated camera.mp4 (50 fps)")
     args = parser.parse_args(argv)
     if args.preview and args.demo:
@@ -161,6 +165,10 @@ def main(argv=None):
         parser.error("--headless requires --demo or --preview")
     if args.steps is not None and args.steps <= 0:
         parser.error("--steps must be positive")
+    if args.lambda_gain <= 0:
+        parser.error("--lambda must be positive, otherwise the error does not decay")
+    if args.damping < 0:
+        parser.error("--damping must be non-negative")
     limit = args.steps if args.steps is not None else (600 if args.demo or args.headless else None)
     run_name = "preview" if args.preview else (args.scenario if args.demo else "interactive")
     output = (args.output or ROOT.parent / "results" / run_name).resolve()
@@ -170,7 +178,9 @@ def main(argv=None):
     robot = RobotController(model, data)
     resolution = (320, 240)
     controller = VisualServoController(model, data, "end_effector_camera",
-                                       "target", resolution)
+                                       "target", resolution,
+                                       lambda_gain=args.lambda_gain,
+                                       damping=args.damping)
     renderer = MujocoRenderer(model, data, "end_effector_camera", resolution)
     period_steps = max(1, round(0.02 / model.opt.timestep))
     dt = period_steps * float(model.opt.timestep)
