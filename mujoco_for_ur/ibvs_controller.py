@@ -101,5 +101,5 @@ def compute_joint_velocity(points, desired_points, depths, intrinsics,
     # (正则化)格拉姆矩阵 A^T A + mu^2 (mu = damping)
     n = jacobian.shape[1]                   # 关节数: 6
     gram = A.T @ A + damping ** 2 * np.eye(n)
-    joint_velocity = -lambda_gain * np.linalg.solve(gram, A.T @ error)
-    return joint_velocity
+    q_dot = -lambda_gain * np.linalg.solve(gram, A.T @ error)   # 单位: rad/s
+    return q_dot
