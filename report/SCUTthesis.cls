@@ -97,8 +97,8 @@
 \setCJKmainfont{SimSun}
 \setCJKfamilyfont{song}{SimSun}
 \setCJKfamilyfont{hei}{SimHei}
-\setCJKfamilyfont{kai}{KaiTi_GB2312}
-\setCJKfamilyfont{fang}{FangSong_GB2312}
+\setCJKfamilyfont{kai}{KaiTi}
+\setCJKfamilyfont{fang}{FangSong}
 
 % 定义字体
 \newcommand{\songti}{\CJKfamily{song}}
