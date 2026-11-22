@@ -4,3 +4,27 @@ MUJOCO_LOG.TXT
 results/
 .pytest_cache/
 .vscode/
+
+# LaTex编译中间产物
+report/build/
+*.aux
+*.log
+*.hd
+*.idx
+*.ind
+*.ilg
+*.toc
+*.lof
+*.lot
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex(busy)
+*.xdv
+*.bbl
+*.blg
+*(busy)
+missfont.log
+
+*.pdf
