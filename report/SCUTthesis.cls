@@ -49,7 +49,7 @@
 \def \submitdate#1{\gdef\@submitdate{#1}}
 
 \ifmasterdegree \newcommand{\@degree}{\degree} \else \newcommand{\@degree}{博士} \fi
-\newcommand{\thesissubject}{\@degree{}学位论文}
+\newcommand{\thesissubject}{课程设计报告}
 %\renewcommand{\today}{{\the\year}~年~{\the\month}~月~{\the\day}~日}
 \ifsubmitdate \newcommand{\@submitdate}{\submitdate} \else \newcommand{\@submitdate}{{\the\year}~年~{\the\month}~月~{\the\day}~日} \fi
 \newcommand{\thesissubmitdate}{\@submitdate}
