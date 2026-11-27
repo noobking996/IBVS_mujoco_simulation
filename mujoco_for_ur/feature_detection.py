@@ -125,7 +125,7 @@ def _order_relative(points: np.ndarray, previous) -> np.ndarray | None:
             raise ValueError("FATAL: Invalid format of previous_points detected !!!")
         return None
     best_perm, best_cost = None, np.inf
-    for perm in permutations(range(4)): # 遍历四角点顺序排列
+    for perm in permutations(range(4)): # 遍历四角点顺序排列(permutations)
         cost = float(np.sum((points[list(perm)] - prev) ** 2))  # 计算当前排列与上帧角点距离平方和
         if cost < best_cost:
             best_cost, best_perm = cost, perm
